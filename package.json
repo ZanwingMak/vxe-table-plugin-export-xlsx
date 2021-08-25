@@ -1,8 +1,8 @@
 {
-  "name": "vxe-table-plugin-export-xlsx",
+  "name": "@marv1n/vxe-table-plugin-export-xlsx",
   "base_version": "2.2.1",
   "version": "0.0.1",
-  "description": "基于 vxe-table 的表格插件，支持导出 xlsx 格式",
+  "description": "(为项目特殊需求改写，仅内部使用) 基于 vxe-table 的表格插件，支持导出 xlsx 格式",
   "scripts": {
     "lib": "gulp build"
   },
