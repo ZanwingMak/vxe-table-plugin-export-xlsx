@@ -7,7 +7,7 @@ import {
   ColumnConfig,
   TableExportConfig,
   ColumnAlign
-} from 'vxe-table/lib/vxe-table'
+} from 'vxe-table'
 import * as ExcelJS from 'exceljs'
 
 const defaultHeaderBackgroundColor = 'f8f8f9'
@@ -40,12 +40,13 @@ function getFooterData (opts: TableExportConfig, footerData: any[][]) {
   return footerFilterMethod ? footerData.filter((items, index) => footerFilterMethod({ items, $rowIndex: index })) : footerData
 }
 
-function getFooterCellValue ($table: Table, opts: TableExportConfig, rows: any[], column: ColumnConfig) {
-  const cellValue = getCellLabel(column, rows[$table.getVMColumnIndex(column)])
-  return cellValue
-}
+// function getFooterCellValue ($table: Table, opts: TableExportConfig, rows: any[], column: ColumnConfig) {
+//   const cellValue = getCellLabel(column, rows[$table.getVMColumnIndex(column)])
+//   return cellValue
+// }
 
-declare module 'vxe-table/lib/vxe-table' {
+declare module 'vxe-table' {
+  /* eslint-disable no-unused-vars */
   interface ColumnInfo {
     _row: any;
     _colSpan: number;
@@ -110,7 +111,10 @@ function getDefaultBorderStyle () {
 
 function exportXLSX (params: InterceptorExportParams) {
   const msgKey = 'xlsx'
-  const { $table, options, columns, colgroups, datas } = params
+  // console.log('params:', params)
+  const { $table, options, /* columns, colgroups, */ datas } = params
+  const columns = params.options.lastRowColums
+  const colgroups = params.options.realColGroups
   const { $vxe, rowHeight, headerAlign: allHeaderAlign, align: allAlign, footerAlign: allFooterAlign } = $table
   const { modal, t } = $vxe
   const { message, sheetName, isHeader, isFooter, isMerge, isColgroup, original, useStyle, sheetMethod } = options
@@ -122,28 +126,42 @@ function exportXLSX (params: InterceptorExportParams) {
   const sheetMerges: { s: { r: number, c: number }, e: { r: number, c: number } }[] = []
   let beforeRowCount = 0
   const colHead: any = {}
-  columns.forEach((column) => {
-    const { id, property, renderWidth } = column
-    colHead[id] = original ? property : column.getTitle()
-    sheetCols.push({
-      key: id,
-      width: XEUtils.ceil(renderWidth / 8, 1)
-    })
+  columns.forEach((column: any) => {
+    try {
+      const { property/* , renderWidth */ } = column
+      const key = column.property
+      const renderWidth = column.width
+      colHead[key] = original ? property : column.title
+      column.id = column.property
+      column.parentId = column.params.parentId
+      sheetCols.push({
+        key: key,
+        width: Math.ceil(renderWidth / 8)
+      })
+    } catch (error) {
+      // console.log(error)
+    }
   })
+  // console.log('columns:', columns)
   // 处理表头
   if (isHeader) {
     // 处理分组
     if (isColgroup && !original && colgroups) {
-      colgroups.forEach((cols, rIndex) => {
-        let groupHead: any = {}
-        columns.forEach((column) => {
-          groupHead[column.id] = null
+      // console.log('colgroups:', colgroups)
+      colgroups.forEach((cols: any, rIndex: any) => {
+        const groupHead: any = {}
+        columns.forEach((column: any) => {
+          groupHead[column.property] = null
         })
-        cols.forEach((column) => {
-          const { _colSpan, _rowSpan } = column
+        cols.forEach((column: any) => {
+          column.id = column.property
+          column.parentId = column.params.parentId
+          // const { _colSpan, _rowSpan } = column
+          const _colSpan = column.colSpan
+          const _rowSpan = column.rowSpan
           const validColumn = getValidColumn(column)
-          const columnIndex = columns.indexOf(validColumn)
-          groupHead[validColumn.id] = original ? validColumn.property : column.getTitle()
+          const columnIndex = columns.findIndex((item: any) => item.key.startsWith(validColumn.key))
+          groupHead[validColumn.property] = original ? validColumn.property : column.title
           if (_colSpan > 1 || _rowSpan > 1) {
             sheetMerges.push({
               s: { r: rIndex, c: columnIndex },
@@ -157,11 +175,12 @@ function exportXLSX (params: InterceptorExportParams) {
       colList.push(colHead)
     }
     beforeRowCount += colList.length
+    // console.log('colList:', colList)
   }
   // 处理合并
   if (isMerge && !original) {
     mergeCells.forEach(mergeItem => {
-      let { row: mergeRowIndex, rowspan: mergeRowspan, col: mergeColIndex, colspan: mergeColspan } = mergeItem
+      const { row: mergeRowIndex, rowspan: mergeRowspan, col: mergeColIndex, colspan: mergeColspan } = mergeItem
       sheetMerges.push({
         s: { r: mergeRowIndex + beforeRowCount, c: mergeColIndex },
         e: { r: mergeRowIndex + beforeRowCount + mergeRowspan - 1, c: mergeColIndex + mergeColspan - 1 }
@@ -170,11 +189,13 @@ function exportXLSX (params: InterceptorExportParams) {
   }
   const rowList = datas.map(item => {
     const rest: any = {}
-    columns.forEach((column) => {
-      rest[column.id] = getCellLabel(column, item[column.id])
+    columns.forEach((column: any) => {
+      rest[column.property] = getCellLabel(column, item._row[column.property])
+      column.id = column.property
     })
     return rest
   })
+  // console.log('rowList:', rowList)
   beforeRowCount += rowList.length
   // 处理表尾
   if (isFooter) {
@@ -184,35 +205,55 @@ function exportXLSX (params: InterceptorExportParams) {
     // 处理合并
     if (isMerge && !original) {
       mergeFooterItems.forEach(mergeItem => {
-        let { row: mergeRowIndex, rowspan: mergeRowspan, col: mergeColIndex, colspan: mergeColspan } = mergeItem
+        const { row: mergeRowIndex, rowspan: mergeRowspan, col: mergeColIndex, colspan: mergeColspan } = mergeItem
         sheetMerges.push({
           s: { r: mergeRowIndex + beforeRowCount, c: mergeColIndex },
           e: { r: mergeRowIndex + beforeRowCount + mergeRowspan - 1, c: mergeColIndex + mergeColspan - 1 }
         })
       })
     }
+    // console.log('footers:', footers)
     footers.forEach((rows) => {
       const item: any = {}
-      columns.forEach((column) => {
-        item[column.id] = getFooterCellValue($table, options, rows, column)
+      columns.forEach((column: any, index: number) => {
+        item[column.property] = rows[index]
       })
       footList.push(item)
     })
+    // console.log('footList:', footList)
   }
   const exportMethod = () => {
     const workbook = new ExcelJS.Workbook()
     const sheet = workbook.addWorksheet(sheetName)
     workbook.creator = 'vxe-table'
+    // console.log('sheetCols: ', sheetCols)
     sheet.columns = sheetCols
+    const _columns = columns
     if (isHeader) {
-      sheet.addRows(colList).forEach(excelRow => {
+      colList.forEach(list => {
+        for (const key in list) {
+          if (list[key] === null) {
+            // eslint-disable-next-line no-prototype-builtins
+            if (list.hasOwnProperty(key)) {
+              const colItem = columns.find((item: any) => item.property === key)
+              // console.log('colItem:', colItem)
+              list[key] = list[colItem.parentId]
+            }
+          }
+        }
+      })
+      // console.log('colList2:', colList)
+      sheet.addRows(colList).forEach((excelRow, eIndex) => {
         if (useStyle) {
           setExcelRowHeight(excelRow, rowHeight)
         }
+        // console.log('excelRow:', excelRow)
         excelRow.eachCell(excelCell => {
           const excelCol = sheet.getColumn(excelCell.col)
-          const column: any = $table.getColumnById(excelCol.key as string)
-          const { headerAlign, align } = column
+          const column: any = _columns.find((item: any) => excelCol.key === item.property)
+          // const column_p = colgroups[eIndex].find((item: any) => column.property.startsWith(item.key))
+          const headerAlign = 'center'
+          const { /* headerAlign, */ align } = column
           setExcelCellStyle(excelCell, headerAlign || align || allHeaderAlign || allAlign)
           if (useStyle) {
             Object.assign(excelCell, {
@@ -224,7 +265,7 @@ function exportXLSX (params: InterceptorExportParams) {
               },
               fill: {
                 type: 'pattern',
-                pattern:'solid',
+                pattern: 'solid',
                 fgColor: {
                   argb: defaultHeaderBackgroundColor
                 }
@@ -241,7 +282,7 @@ function exportXLSX (params: InterceptorExportParams) {
       }
       excelRow.eachCell(excelCell => {
         const excelCol = sheet.getColumn(excelCell.col)
-        const column: any = $table.getColumnById(excelCol.key as string)
+        const column: any = _columns.find((item: any) => item.property === excelCol.key)
         const { align } = column
         setExcelCellStyle(excelCell, align || allAlign)
         if (useStyle) {
@@ -263,7 +304,7 @@ function exportXLSX (params: InterceptorExportParams) {
         }
         excelRow.eachCell(excelCell => {
           const excelCol = sheet.getColumn(excelCell.col)
-          const column: any = $table.getColumnById(excelCol.key as string)
+          const column: any = _columns.find((item: any) => item.property === excelCol.key)
           const { footerAlign, align } = column
           setExcelCellStyle(excelCell, footerAlign || align || allFooterAlign || allAlign)
           if (useStyle) {
@@ -280,12 +321,14 @@ function exportXLSX (params: InterceptorExportParams) {
       })
     }
     if (useStyle && sheetMethod) {
+      /* eslint-disable-next-line */
       sheetMethod({ options, workbook, worksheet: sheet, columns, colgroups, datas, $table })
     }
     sheetMerges.forEach(({ s, e }) => {
       sheet.mergeCells(s.r + 1, s.c + 1, e.r + 1, e.c + 1)
     })
-    workbook.xlsx.writeBuffer().then(buffer  => {
+    workbook.xlsx.writeBuffer().then(buffer => {
+      /* eslint-disable-next-line */
       var blob = new Blob([buffer], { type: 'application/octet-stream' })
       // 导出 xlsx
       downloadFile(params, blob, options)
@@ -332,7 +375,8 @@ function checkImportData (tableFields: string[], fields: string[]) {
   return fields.some(field => tableFields.indexOf(field) > -1)
 }
 
-declare module 'vxe-table/lib/vxe-table' {
+declare module 'vxe-table' {
+  /* eslint-disable no-unused-vars */
   interface Table {
     _importResolve?: Function | null;
     _importReject?: Function | null;
@@ -380,7 +424,7 @@ function importXLSX (params: InterceptorImportParams) {
           const status = checkImportData(tableFields, fields)
           if (status) {
             const records = sheetValues.slice(fieldIndex).map(list => {
-              const item : any= {}
+              const item : any = {}
               list.forEach((cellValue, cIndex) => {
                 item[fields[cIndex]] = cellValue
               })
